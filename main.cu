@@ -94,8 +94,41 @@ main (int argc, char *argv[]) {
 
   /* Create CPU data structures */
   createDataStructsCPU(numK, numX, &phiMag, &Qr, &Qi);
+  
+  float *PhiR_d, *phiI_d, *phiMag_d;
+  float *Qr_d, *Qi_d;
+  float *x_d, *y_d, *z_d;
 
-  ComputePhiMagCPU(numK, phiR, phiI, phiMag);
+  //ComputePhiMagCPU(numK, phiR, phiI, phiMag);
+  /*Compute Phi*/
+  cudaError_t cuda_ret;
+  cuda_ret = cudaSetDevice(1);
+  pb_SwitchToTimer(&timers, pb_TimerID_COPY);
+  /* Allocate memory on GPU */
+  cuda_ret = cudaMalloc((void** )&phiR_d, sizeof(float) * numK);
+  cuda_ret = cudaMalloc((void** )&phiI_d, sizeof(float) * numK);
+  cuda_ret = cudaMalloc((void** )&phiMag_d, sizeof(float) * numK);
+  cudaDeviceSynchronize();
+  /* Copy data on GPU */
+  cuda_ret = cudaMemcpy(phiR_d, phiR, sizeof(float) * numK, cudaMemcpyHostToDevice);
+  cuda_ret = cudaMemcpy(phiI_d, phiI, sizeof(float) * numK, cudaMemcpyHostToDevice);
+  /* Initialize data on GPU */
+  cuda_ret = cudaMemset(phiMag_d, 0, sizeof(float) * numK);
+  cudaDeviceSynchronize();
+  pb_SwitchToTimer(&timers, pb_TimerID_KERNEL);
+  /* Compute on GPU */
+  ComputePhiMagGPU(numK, phiR_d, phiI_d, phiMag_d);
+  cudaDeviceSynchronize();
+  pb_SwitchToTimer(&timers, pb_TimerID_COPY);
+  /* Copy GPU data to memory */
+  cuda_ret = cudaMemcpy(phiMag, phiMag_d, sizeof(float) * numK, cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+  /* Free up memory on GPU */
+  cuda_ret = cudaFree(phiMag_d);
+  cuda_ret = cudaFree(phiI_d);
+  cuda_ret = cudaFree(phiR_d);
+  cudaDeviceSynchronize();
+  pb_SwitchToTimer(&timers, pb_TimerID_COMPUTE);
 
   kVals = (struct kValues*)calloc(numK, sizeof (struct kValues));
   int k;
@@ -105,7 +138,43 @@ main (int argc, char *argv[]) {
     kVals[k].Kz = kz[k];
     kVals[k].PhiMag = phiMag[k];
   }
-  ComputeQCPU(numK, numX, kVals, x, y, z, Qr, Qi);
+  
+  
+  //ComputeQCPU(numK, numX, kVals, x, y, z, Qr, Qi);
+  pb_SwitchToTimer(&timers, pb_TimerID_COPY);
+  /*Compute Q*/
+  /* Allocate memory on GPU */
+  cuda_ret = cudaMalloc((void** )&Qr_d, sizeof(float) * numX);
+  cuda_ret = cudaMalloc((void** )&Qi_d, sizeof(float) * numX);
+  cuda_ret = cudaMalloc((void** )&x_d, sizeof(float) * numX);
+  cuda_ret = cudaMalloc((void** )&y_d, sizeof(float) * numX);
+  cuda_ret = cudaMalloc((void** )&z_d, sizeof(float) * numX);
+  cudaDeviceSynchronize();
+  /* Copy data to GPU */
+  cuda_ret = cudaMemcpy(x_d, x, sizeof(float) * numX, cudaMemcpyHostToDevice);
+  cuda_ret = cudaMemcpy(y_d, y, sizeof(float) * numX, cudaMemcpyHostToDevice);
+  cuda_ret = cudaMemcpy(z_d, z, sizeof(float) * numX, cudaMemcpyHostToDevice);
+  /* Initialize data on GPU */
+  cuda_ret = cudaMemset(Qr_d, 0, sizeof(float) * numX);
+  cuda_ret = cudaMemset(Qi_d, 0, sizeof(float) * numX);
+  cudaDeviceSynchronize();
+  pb_SwitchToTimer(&timers, pb_TimerID_KERNEL);
+  /* Compute on GPU */
+  ComputeQGPU(numK, numX, kVals, x_d, y_d, z_d, Qr_d, Qi_d);
+  cudaDeviceSynchronize();
+  pb_SwitchToTimer(&timers, pb_TimerID_COPY);
+  /* Copy GPU data to memory */
+  cuda_ret = cudaMemcpy(Qr, Qr_d, sizeof(float) * numX, cudaMemcpyDeviceToHost);
+  cuda_ret = cudaMemcpy(Qi, Qi_d, sizeof(float) * numX, cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+  /* Free up no longer needed memory on GPU */
+  cuda_ret = cudaFree(z_d);
+  cuda_ret = cudaFree(y_d);
+  cuda_ret = cudaFree(x_d);
+  cuda_ret = cudaFree(Qi_d);
+  cuda_ret = cudaFree(Qr_d);
+  cudaDeviceSynchronize();
+  cudaDeviceReset();
 
   if (params->outFile)
     {
